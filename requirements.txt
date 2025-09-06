@@ -1,0 +1,13 @@
+jupyter
+pandas-ta
+pandas
+yfinance
+mplfinance
+matplotlib
+seaborn
+finnhub-python
+gspread
+gspread_dataframe
+oauth2client
+plotly
+kaleido
