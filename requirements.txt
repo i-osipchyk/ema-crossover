@@ -11,3 +11,4 @@ gspread_dataframe
 oauth2client
 plotly
 kaleido
+tqdm
