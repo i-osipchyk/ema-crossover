@@ -55,4 +55,5 @@ TODO
 
 ## Updates
 
-- **September 16, 2025**: executed first entry parameters grid search on full historical data. **Next:** stock selection
+- **September 16, 2025:** executed first entry parameters grid search on full historical data. **Next:** stock selection
+- **September 17, 2025:** performed stock selection and executed position sizing grid search. Achieved results of **EV≈0.478** and **Accuracy≈60.6%**. **Next:** set up daily evaluation pipeline
