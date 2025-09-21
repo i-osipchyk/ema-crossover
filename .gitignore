@@ -214,4 +214,7 @@ ENV/
 # outputs
 /data/outputs/
 
+# daily data update
+/daily_labeled/
+
 # End of https://www.gitignore.io/api/macos,linux,django,python,pycharm
