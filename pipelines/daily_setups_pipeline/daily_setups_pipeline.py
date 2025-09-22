@@ -17,7 +17,7 @@ DEFAULT_FILTERS = [
     "Above_EMA_50",
     "Above_EMA_200",
     "MACD_Positive",
-    "MACD_Signal_Negative",
+    # "MACD_Signal_Negative",
     "Volume",
     "Price",
     "ATR",
