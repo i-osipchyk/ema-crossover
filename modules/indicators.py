@@ -1,6 +1,6 @@
 import pandas as pd
-from tqdm.notebook import tqdm
 from typing import List, Dict, Callable, Tuple
+from tools import get_tqdm
 
 
 def apply_to_dict(
@@ -19,6 +19,8 @@ def apply_to_dict(
     Returns:
         Dict[str, pd.DataFrame]: Updated mapping with transformed DataFrames.
     """
+    tqdm = get_tqdm()
+
     new_stock_dict: Dict[str, pd.DataFrame] = {}
     for symbol, df in tqdm(stock_dict.items(), desc="Processing symbols", total=len(stock_dict)):
         df_copy = df.copy()

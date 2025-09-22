@@ -1,8 +1,8 @@
 import pandas as pd
 import yfinance as yf
 import time
-from tqdm import tqdm
 from typing import List, Dict
+from tools import get_tqdm
 
 
 def download_data(symbols: List[str], period: str, interval: str, batch_size: int = 100, delay: float = 0.1) -> Dict[str, pd.DataFrame]:
@@ -20,6 +20,8 @@ def download_data(symbols: List[str], period: str, interval: str, batch_size: in
         Dict[str, pd.DataFrame]: Mapping of symbol → OHLCV DataFrame.
             Each DataFrame contains: Datetime, Open, High, Low, Close, Volume, Symbol.
     """
+    tqdm = get_tqdm()
+
     results: Dict[str, pd.DataFrame] = {}
 
     num_batches = (len(symbols) - 1) // batch_size + 1
