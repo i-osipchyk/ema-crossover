@@ -2,7 +2,7 @@ import pandas as pd
 import yfinance as yf
 import time
 from typing import List, Dict
-from tools import get_tqdm
+from .tools import get_tqdm
 
 
 def download_data(symbols: List[str], period: str, interval: str, batch_size: int = 100, delay: float = 0.1) -> Dict[str, pd.DataFrame]:

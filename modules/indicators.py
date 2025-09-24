@@ -1,6 +1,6 @@
 import pandas as pd
 from typing import List, Dict, Callable, Tuple
-from tools import get_tqdm
+from .tools import get_tqdm
 
 
 def apply_to_dict(
@@ -203,18 +203,18 @@ def process_symbol_df(
         if col in df.columns:
             df[col] = df[col].round(2)
 
-    # --- Calculate EMAs, SMAs and above/below flags ---
+    # Calculate EMAs, SMAs and above/below flags
     for period, source, method in ma_params:
         df = calculate_ma(df, period=period, source=source, method=method)
         ma_col = f"{method}_{source}_{period}"
         df[f"Above_{ma_col}"] = df["Close"] > df[ma_col]
 
-    # --- Other indicators ---
+    # Other indicators
     df = calculate_atr(df)
     df = calculate_macd(df)
     df = label_candle_color(df)
 
-    # --- Add crossover signals ---
+    # Add crossover signals
     for short_params, long_params in crossover_mas:
         df = mark_crossovers(df, short_params, long_params)
 
