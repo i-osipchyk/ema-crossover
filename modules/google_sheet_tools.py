@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 import gspread
 from google.oauth2.service_account import Credentials
 
+from .tools import *
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -150,7 +152,8 @@ def write_trades_to_sheet(
         ).query('_merge == "left_only"').drop(columns=['_merge'])
 
     # Convert datetime to string
-    df_to_write["Date"] = pd.to_datetime(df_to_write["Date"]).dt.date.astype(str)
+    # df_to_write["Date"] = pd.to_datetime(df_to_write["Date"]).dt.date.astype(str)
+    df_to_write["Date"] = df_to_write["Date"].astype(str)
     
     if existing_df.empty:  # sheet is empty → write headers + data
         all_values = [df_to_write.columns.tolist()] + df_to_write.values.tolist()
@@ -257,11 +260,11 @@ def update_trades_sheet(sheet_url: str, evaluated_trades: pd.DataFrame, tab_name
 
     # Update only open trades (Position Left > 0)
     for idx, row in evaluated_trades.iterrows():
-        if row["Position Left"] > 0:
-            if idx in df_sheet.index:
-                df_sheet.loc[idx] = row  # overwrite the row
-            else:
-                df_sheet.loc[idx] = row  # new trade, append
+        # if row["Position Left"] > 0:
+        if idx in df_sheet.index:
+            df_sheet.loc[idx] = row  # overwrite the row
+        else:
+            df_sheet.loc[idx] = row  # new trade, append
 
     # Reset index
     df_sheet.reset_index(inplace=True)
@@ -273,6 +276,7 @@ def update_trades_sheet(sheet_url: str, evaluated_trades: pd.DataFrame, tab_name
 
     # Write back to sheet
     all_values_to_write = [df_sheet.columns.tolist()] + df_sheet.values.tolist()
+    all_values_to_write = replace_nan_with_none(all_values_to_write)
     worksheet.update(f"A1", all_values_to_write, value_input_option="USER_ENTERED")
 
     print(f"✅ Sheet '{tab_name}' updated with evaluated trades (open trades updated, closed trades unchanged).")
