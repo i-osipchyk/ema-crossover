@@ -194,7 +194,8 @@ def evaluate_trades(trades_df: pd.DataFrame, stock_data: dict) -> pd.DataFrame:
                     tp_reached.append("Trailing_SL")
                 else:
                     tp_reached.append("BE")
-                    
+
+                unrealized = 0.0
                 # print(f"🛑 {date.date()} | SL hit at {stop_loss}, closing trade.")
                 break
 
@@ -215,6 +216,7 @@ def evaluate_trades(trades_df: pd.DataFrame, stock_data: dict) -> pd.DataFrame:
                     # If last TP reached, trade is closed
                     if i + 1 == max_tp:
                         position_left = 0.0
+                        unrealized = 0.0
                         # print(f"🏁 Max TP{max_tp} reached, closing trade.")
                         break
 
@@ -222,16 +224,18 @@ def evaluate_trades(trades_df: pd.DataFrame, stock_data: dict) -> pd.DataFrame:
             if day["EMA_Close_8"] < day["EMA_Close_20"]:
                 realized += pos_size * position_left * close
                 position_left = 0.0
+                unrealized = 0.0
                 tp_reached.append("EMA_Cross")
                 # print(f"📉 {date.date()} | EMA crossover exit at {close}, closing trade.")
                 break
 
+            unrealized = position_left * pos_size * close
+
         # Update trade row
         df.at[idx, "Position Left"] = position_left
         df.at[idx, "Realized"] = realized
-        df.at[idx, "Unrealized"] = position_left * pos_size * df_sym.iloc[-1]["Close"]
+        df.at[idx, "Unrealized"] = unrealized # position_left * pos_size * df_sym.iloc[-1]["Close"]
         df.at[idx, "TP Reached"] = ",".join(tp_reached)
 
         # print(f"📊 Final state: Realized={realized:.2f}, Unrealized={df.at[idx,'Unrealized']:.2f}, Position Left={position_left:.2f}, TP Reached={df.at[idx,'TP Reached']}")
-
     return df
