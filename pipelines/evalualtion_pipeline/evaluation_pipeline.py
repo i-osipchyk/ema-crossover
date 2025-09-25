@@ -94,6 +94,11 @@ def main(
             sheet_tab=potential_tab
         )
 
+    # Get existing trades, evaluate them and update sheet
+    existing_trades = read_trades_from_sheet(sheet_url)
+    existing_trades_evaluated = evaluate_trades(existing_trades, stock_data_labeled)
+    update_trades_sheet(sheet_url, existing_trades_evaluated)
+
     #  Get previous trading day's entries 
     prev_day_entries = get_previous_trading_day_entries(
         sheet_url=sheet_url,
@@ -116,12 +121,6 @@ def main(
             trades_df=trades_df,
             sheet_url=sheet_url
         )
-
-    existing_trades = read_trades_from_sheet(sheet_url)
-
-    existing_trades_evaluated = evaluate_trades(existing_trades, stock_data_labeled)
-
-    update_trades_sheet(sheet_url, existing_trades_evaluated)
 
     return {
         "today": potential_entries,
