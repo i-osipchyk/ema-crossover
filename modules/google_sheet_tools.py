@@ -130,10 +130,7 @@ def write_trades_to_sheet(
         worksheet = spreadsheet.add_worksheet(title=tab_name, rows=1000, cols=50)
         print(f"Created new tab: {tab_name}")
 
-    # Convert Date column to string
     df_to_write = trades_df.copy()
-    if "Date" in df_to_write.columns:
-        df_to_write["Date"] = df_to_write["Date"].astype(str)
 
     # Check existing rows
     existing_rows = worksheet.get_all_values()
@@ -141,19 +138,13 @@ def write_trades_to_sheet(
     
     # Filter out trades that already in the sheet, by Symbol and Date 
     if not existing_df.empty:
-        existing_df['Date'] = pd.to_datetime(existing_df['Date'])
-        df_to_write['Date'] = pd.to_datetime(df_to_write['Date'])
+        existing_df['Date'] = pd.to_datetime(existing_df['Date']).dt.strftime("%Y-%m-%d %H:%M:%S")
+        df_to_write['Date'] = pd.to_datetime(df_to_write['Date']).dt.strftime("%Y-%m-%d %H:%M:%S")
 
-        df_to_write = df_to_write.merge(
-            existing_df[['Symbol', 'Date']],
-            on=['Symbol', 'Date'],
-            how='left',
-            indicator=True
-        ).query('_merge == "left_only"').drop(columns=['_merge'])
-
-    # Convert datetime to string
-    # df_to_write["Date"] = pd.to_datetime(df_to_write["Date"]).dt.date.astype(str)
-    df_to_write["Date"] = df_to_write["Date"].astype(str)
+        mask = ~df_to_write.set_index(['Symbol', 'Date']).index.isin(
+            existing_df.set_index(['Symbol', 'Date']).index
+        )
+        df_to_write = df_to_write[mask]
     
     if existing_df.empty:  # sheet is empty → write headers + data
         all_values = [df_to_write.columns.tolist()] + df_to_write.values.tolist()
@@ -169,7 +160,7 @@ def write_trades_to_sheet(
         value_input_option="USER_ENTERED"
     )
 
-    print(f"✅ Appended {len(trades_df)} trades to tab '{tab_name}'")
+    print(f"✅ Appended {len(df_to_write)} trades to tab '{tab_name}'")
     return tab_name
 
 def read_trades_from_sheet(sheet_url: str, tab_name: str = "Trades") -> pd.DataFrame:

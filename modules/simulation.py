@@ -93,7 +93,7 @@ def generate_trades(
 
         # Save trade
         trade = {
-            "Date": datetime.now().date(),
+            "Date": datetime.now().strftime("%Y-%m-%d 00:00:00"),
             "Symbol": df["Symbol"].values[0], 
             "Entry Price": round(entry_price, 2),
             "Shares": round(share_n, 2),
@@ -125,9 +125,13 @@ def generate_trades(
         "Position Left", "Realized", "Unrealized", "TP Reached",
         "Stop Rule", "Offset", "Max TP", "Skip TP", "TP Coef"
     ]
-    df_trades = df_trades[base_cols]
-
-    return df_trades
+    
+    if not df_trades.empty:
+        df_trades = df_trades[base_cols]
+        return df_trades
+    else:
+        print('No trades today.')
+        return pd.DataFrame()
 
 def evaluate_trades(trades_df: pd.DataFrame, stock_data: dict) -> pd.DataFrame:
     """
@@ -135,6 +139,10 @@ def evaluate_trades(trades_df: pd.DataFrame, stock_data: dict) -> pd.DataFrame:
     and TP/SL/BE/EMA exit conditions.
     """
     df = trades_df.copy()
+
+    if df.empty:
+        print('No trades found')
+        return df
 
     # Filter open trades
     open_trades = df[df["Position Left"] > 0]
