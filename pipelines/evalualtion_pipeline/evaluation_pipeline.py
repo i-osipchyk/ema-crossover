@@ -9,6 +9,7 @@ import pandas as pd
 import argparse
 from datetime import datetime
 from typing import Dict, List, Optional, Any
+import time
 
 from modules.download import *
 from modules.indicators import *
@@ -22,20 +23,16 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_FILTERS = [
-    "Above_EMA_34",
-    "Above_EMA_50",
-    "Above_EMA_200",
-    "MACD_Positive",
-    # "MACD_Signal_Negative",
-    "Volume",
-    "Price",
-    "ATR",
+DEFAULT_FILTER_SETS = [
+    ["Above_EMA_34", "Above_EMA_50", "Above_EMA_200", "MACD_Positive", "Volume", "Price", "ATR"],
+    ["Above_EMA_34", "Above_EMA_50", "Above_EMA_200", "MACD_Positive", "MACD_Signal_Negative", "Volume", "Price", "ATR"],
 ]
 
 
+# TODO: handle Google Sheets API requests limit
+
 def main(
-    filters: List[str],
+    filter_sets: List[List[str]],
     symbols_list: List[str] = None,
     sheet_url: str = "https://docs.google.com/spreadsheets/d/16HZfFIu37ZG7kRgLDI9SqS5xPhb3pn3iY2ubOymVseU/edit#gid=1171524967",
     potential_tab: str = "Potential Setups"
@@ -50,7 +47,7 @@ def main(
     - Append trades to Google Sheets
 
     Args:
-        filters (List[str]): List of filters to apply for potential entries.
+        filters (List[str]): List of filter sets to apply for potential entries.
         symbols_list (List[str], optional): List of symbols. Defaults to a test list.
         sheet_url (str): Google Sheets URL.
         potential_tab (str): Tab name for potential entries.
@@ -64,9 +61,9 @@ def main(
     shift = 0
 
     symbols_list = read_list_from_file("data/all-symbols-june-2025.txt")
-    # symbols_list = ['WELL', 'MET', 'ETR', 'NVDA', 'QRVO', 'WSBC', 'TARS', 'COR', 'FERG', 'HIG', 'TXNM', 'NJR', 'AROC']
+    # symbols_list = ['COR', 'HIG', 'NJR', 'AROC', 'CB', 'DUK', 'CF', 'KGS', 'JNJ', 'TTE', 'NOC', 'VTR', 'DVN', 'SQM', 'BKH', 'ORLY', 'NXPI', 'ROST', 'GH']
 
-    # Download OHLCV 
+    # 1. Download and label all data
     stock_data = download_data(
         symbols=symbols_list,
         period="500d",
@@ -74,32 +71,47 @@ def main(
         batch_size=100,
     )
 
-    # Label data 
     stock_data_labeled = apply_to_dict(stock_data, process_symbol_df)
 
-    # Run potential entries 
-    potential_entries = find_potential_entries(
-        stock_data_labeled,
-        shift=shift,
-        filters=filters,
-    )
+    # 2. Find potential entries based on different sets of filters
+    potential_entries_with_filters = []
 
-    logger.info("📈 Potential entries: %s", potential_entries)
+    for filter_set in filter_sets:
+        potential_entries, filter_set = find_potential_entries(
+            stock_data_labeled,
+            shift=shift,
+            filter_set=filter_set,
+        )
 
-    # Save potential entries to Google Sheets 
-    if potential_entries:
+        if potential_entries:
+            potential_entries_with_filters.append((potential_entries, filter_set))
+
+        # logger.info("📈 Potential entries for filter set %s: %s", filter_set, potential_entries)
+
+    # 3. Write potential entries and their filters
+    for potential_entries, filter_set in potential_entries_with_filters:
         write_potential_entries(
             symbols=potential_entries,
+            filter_set=filter_set,
             sheet_url=sheet_url,
             sheet_tab=potential_tab
         )
 
-    # Get existing trades, evaluate them and update sheet
-    existing_trades = read_trades_from_sheet(sheet_url)
-    existing_trades_evaluated = evaluate_trades(existing_trades, stock_data_labeled)
-    update_trades_sheet(sheet_url, existing_trades_evaluated)
+        time.sleep(1)
 
-    #  Get previous trading day's entries 
+    # 4. Read list of all trade tabs
+    trade_tabs = read_trade_tabs(sheet_url=sheet_url)
+
+    # 5. For each trade tab make evaluation and update it
+    for trade_tab in trade_tabs:
+        # Get existing trades, evaluate them and update sheet
+        existing_trades = read_trades_from_sheet(sheet_url=sheet_url, tab_name=trade_tab)
+        existing_trades_evaluated = evaluate_trades(existing_trades, stock_data_labeled)
+        update_trades_sheet(sheet_url=sheet_url, tab_name=trade_tab, evaluated_trades=existing_trades_evaluated)
+
+        time.sleep(1)
+
+    # 6. Get all potential entries from previous day
     prev_day_entries = get_previous_trading_day_entries(
         sheet_url=sheet_url,
         sheet_tab=potential_tab
@@ -110,30 +122,34 @@ def main(
     # Filter stock data for entries 
     stock_data_for_entries = {sym: df for sym, df in stock_data_labeled.items() if sym in prev_day_entries}
 
-    # Generate trades DataFrame 
-    trades_df = generate_trades(
-        stock_data_for_entries,
-    )
-
-    # Write trades to Google Sheets
-    if not trades_df.empty:
-        write_trades_to_sheet(
-            trades_df=trades_df,
-            sheet_url=sheet_url
+    # 7. Generate trades for all trade tabs
+    for trade_params in generate_trade_param_sets():
+        trades_df, generated_trades_tab = generate_trades(
+            stock_data_for_entries,
+            **trade_params
         )
 
-    return {
-        "today": potential_entries,
-        "previous_day": prev_day_entries,
-        "trades_df": trades_df
-    }
+        if not trades_df.empty:
+            write_trades_to_sheet(
+                trades_df=trades_df,
+                sheet_url=sheet_url,
+                tab_name=generated_trades_tab
+            )
+
+        time.sleep(1)
+
+        write_trade_tab(sheet_url=sheet_url, tab_to_write=generated_trades_tab)
+
+        time.sleep(1)
+
+    return 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run daily stock trading pipeline.")
     parser.add_argument(
-        "--filters",
+        "--filter_sets",
         nargs="+",
-        default=DEFAULT_FILTERS,
+        default=DEFAULT_FILTER_SETS,
         required=False,
         help="List of filters to apply for potential entries"
     )
@@ -159,7 +175,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     result = main(
-        filters=args.filters,
+        filter_sets=args.filter_sets,
         symbols_list=args.symbols,
         sheet_url=args.sheet_url,
         potential_tab=args.potential_tab
