@@ -34,13 +34,14 @@ def get_gs_client() -> gspread.Client:
     return gspread.authorize(creds)
 
 def write_potential_entries(
-    symbols: List[str], sheet_url: str, sheet_tab: str = "Potential Setups"
+    symbols: List[str], filter_set: List[str], sheet_url: str, sheet_tab: str = "Potential Setups"
 ) -> None:
     """
     Append today's potential entry symbols to Google Sheets as a single row.
 
     Args:
         symbols (List[str]): List of stock symbols.
+        filter_set (List[str]): List of filters.
         sheet_url (str): Full URL of the Google Sheet.
         sheet_tab (str, optional): Tab name inside the sheet. Defaults to "Potential Setups".
     """
@@ -52,10 +53,10 @@ def write_potential_entries(
     worksheet = client.open_by_url(sheet_url).worksheet(sheet_tab)
 
     today_str = datetime.now().strftime("%d-%m-%Y")
-    row = [today_str, ", ".join(symbols)]
+    row = [today_str, ", ".join(symbols), ", ".join(filter_set)]
 
     worksheet.append_row(row, value_input_option="USER_ENTERED")
-    logger.info("✅ Wrote %s to '%s' for %s.", ", ".join(symbols), sheet_tab, today_str)
+    logger.info("✅ Wrote %s, %s to '%s' for %s.", ", ".join(symbols), ", ".join(filter_set), sheet_tab, today_str)
 
 def get_previous_trading_day_entries(
     sheet_url: str, sheet_tab: str = "Potential Setups"
@@ -85,7 +86,15 @@ def get_previous_trading_day_entries(
             row["Date"] = None
 
     # Find the most recent previous trading day
-    prev_day = datetime.now().date() - timedelta(days=1)
+    today = datetime.now().date()
+    if today.weekday() == 0:   # Monday
+        prev_day = today - timedelta(days=4)
+    elif today.weekday() == 5: # Saturday
+        prev_day = today - timedelta(days=2)
+    elif today.weekday() == 6: # Sunday
+        prev_day = today - timedelta(days=3)
+    else:                      # Tue-Fri
+        prev_day = today - timedelta(days=1)
     while prev_day.weekday() > 4:  # Skip weekends
         prev_day -= timedelta(days=1)
 
@@ -94,12 +103,18 @@ def get_previous_trading_day_entries(
         logger.warning("No entries found for %s.", prev_day)
         return []
 
-    symbols_str = prev_rows[-1]["Symbols"]
-    return [s.strip() for s in symbols_str.split(",") if s.strip()]
+    # Merge symbols from all rows, remove duplicates
+    all_symbols = set()
+    for row in prev_rows:
+        symbols = [s.strip() for s in row["Symbols"].split(",") if s.strip()]
+        all_symbols.update(symbols)
+
+    return sorted(all_symbols)
 
 def write_trades_to_sheet(
     trades_df: pd.DataFrame,
     sheet_url: str,
+    tab_name: str
 ) -> str:
     """
     Append trade DataFrame to Google Sheets. Creates a new tab if needed.
@@ -121,7 +136,7 @@ def write_trades_to_sheet(
     spreadsheet = client.open_by_url(sheet_url)
 
     # Tab name
-    tab_name = "Trades"
+    # tab_name = "Trades"
 
     # Create tab if it doesn't exist
     try:
@@ -162,6 +177,60 @@ def write_trades_to_sheet(
 
     print(f"✅ Appended {len(df_to_write)} trades to tab '{tab_name}'")
     return tab_name
+
+def read_trade_tabs(sheet_url: str, tab_name: str = "Trade Tabs List"):
+    """
+    Read all trade tabs from the 'Trade Tabs List' worksheet.
+    Creates the worksheet with a header if it does not exist.
+    """
+    client = get_gs_client()
+    spreadsheet = client.open_by_url(sheet_url)
+
+    try:
+        worksheet = spreadsheet.worksheet(tab_name)
+    except gspread.WorksheetNotFound:
+        # Create the worksheet with header row
+        worksheet = spreadsheet.add_worksheet(title=tab_name, rows=1000, cols=1)
+        worksheet.append_row(["Trade Tabs"], value_input_option="USER_ENTERED")
+        logger.info("📄 Created new worksheet: %s", tab_name)
+
+    # Get all values (first row = headers)
+    all_values = worksheet.get_all_values()
+    if not all_values or len(all_values) < 2:
+        logger.warning("⚠️ No trade tabs found in '%s'.", tab_name)
+        return []
+
+    # Flatten values (one tab per row)
+    trade_tabs = [row[0] for row in all_values[1:] if row]
+    logger.info("📑 Found %s trade tabs", len(trade_tabs))
+
+    return trade_tabs
+
+def write_trade_tab(sheet_url: str, tab_to_write: str, list_tab_name: str = "Trade Tabs List"):
+    """
+    Append a trade tab name to the 'Trade Tabs List' sheet if it doesn't exist yet.
+    Creates the sheet if missing.
+    """
+    client = get_gs_client()
+    spreadsheet = client.open_by_url(sheet_url)
+
+    try:
+        worksheet = spreadsheet.worksheet(list_tab_name)
+    except gspread.WorksheetNotFound:
+        # Create the worksheet with header row
+        worksheet = spreadsheet.add_worksheet(title=list_tab_name, rows=1000, cols=1)
+        worksheet.append_row(["Trade Tabs"], value_input_option="USER_ENTERED")
+        logger.info("📄 Created new worksheet: %s", list_tab_name)
+
+    # Get all values (skip header row)
+    all_values = worksheet.get_all_values()
+    existing_tabs = {row[0] for row in all_values[1:] if row} if len(all_values) > 1 else set()
+
+    if tab_to_write not in existing_tabs:
+        worksheet.append_row([tab_to_write], value_input_option="USER_ENTERED")
+        logger.info("✅ Added new trade tab: %s", tab_to_write)
+    else:
+        logger.info("ℹ️ Trade tab already exists: %s", tab_to_write)
 
 def read_trades_from_sheet(sheet_url: str, tab_name: str = "Trades") -> pd.DataFrame:
     """
