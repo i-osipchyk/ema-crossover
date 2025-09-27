@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from typing import List
 from datetime import datetime
+from itertools import product
 
 
 def tp_distribution(max_tp: int, skip_tp: int, coef: float) -> List[float]:
@@ -32,7 +33,9 @@ def generate_trades(
     skip_tp: int = 1,
     be_level_offset: float = 1.0,
     tp_coef: float = 2.0,
-    position_size: float = 100.0
+    position_size: float = 100.0,
+    risk_usd: float = 5.0,
+    position_sizing_method: str = 'risk'
 ) -> pd.DataFrame:
     """
     Generate trades from stock data with entry, SL, TP levels, TP sizes.
@@ -43,9 +46,11 @@ def generate_trades(
         sl_offset_pc (float): Stop loss offset in % of risk.
         max_tp (int): Number of take profit levels.
         skip_tp (int): Number of TPs to skip at start.
+        be_level_offset (float): Offset coefficient used with risk to define level when BE level is activated.
         tp_coef (float): Coefficient for geometric TP size distribution.
         position_size (float): Default position size.
-
+        risk_usd (float): Risk in USD to determine position sizing.
+        position_sizing_method (str): Method to define position sizing.
     Returns:
         pd.DataFrame: Trades with entry, stop loss, BE, risk, TPs and TP sizes.
     """
@@ -80,11 +85,15 @@ def generate_trades(
         if stop_loss >= entry_price:
             continue
 
-        # Number of shares
-        share_n = position_size / entry_price
-
-        # Risk & targets
+        # Risk & share number
         risk_per_share = entry_price - stop_loss
+
+        if position_sizing_method == 'risk':
+            share_n = risk_usd / risk_per_share
+            position_size = entry_price * share_n
+        else:
+            share_n = position_size / entry_price
+
         total_risk = risk_per_share * share_n
 
         # BE price and level
@@ -93,7 +102,8 @@ def generate_trades(
 
         # Save trade
         trade = {
-            "Date": datetime.now().strftime("%Y-%m-%d 00:00:00"),
+            # "Date": datetime.now().strftime("%Y-%m-%d 00:00:00"),
+            "Date": pd.to_datetime(df['Datetime'].values[-1]).strftime("%Y-%m-%d 00:00:00"),
             "Symbol": df["Symbol"].values[0], 
             "Entry Price": round(entry_price, 2),
             "Shares": round(share_n, 2),
@@ -125,13 +135,21 @@ def generate_trades(
         "Position Left", "Realized", "Unrealized", "TP Reached",
         "Stop Rule", "Offset", "Max TP", "Skip TP", "TP Coef"
     ]
+
+    tab_name = f"{stop_rule}_SL{sl_offset_pc}_TP{max_tp}_Skip{skip_tp}_BE{be_level_offset}_Coef{tp_coef}_PosSiz{position_sizing_method}"
     
-    if not df_trades.empty:
-        df_trades = df_trades[base_cols]
-        return df_trades
+    if df_trades.empty:
+        print("No trades today.")
     else:
-        print('No trades today.')
-        return pd.DataFrame()
+        df_trades = df_trades[base_cols]
+    
+    return df_trades, tab_name
+    # if not df_trades.empty:
+    #     df_trades = df_trades[base_cols]
+    #     return df_trades
+    # else:
+    #     print('No trades today.')
+    #     return pd.DataFrame()
 
 def evaluate_trades(trades_df: pd.DataFrame, stock_data: dict) -> pd.DataFrame:
     """
@@ -156,7 +174,8 @@ def evaluate_trades(trades_df: pd.DataFrame, stock_data: dict) -> pd.DataFrame:
         max_tp = int(trade["Max TP"])
         skip_tp = int(trade["Skip TP"])
         tp_coef = float(trade.get("TP Coef", 1.0))
-        pos_size = trade["Shares"]
+        shares_n = trade["Shares"]
+        pos_size = trade['Position Size']
 
         # print(f"\n🔎 Evaluating trade {idx} | {symbol} | Entry: {entry_price} | SL: {stop_loss} | Risk: {risk}")
 
@@ -194,7 +213,7 @@ def evaluate_trades(trades_df: pd.DataFrame, stock_data: dict) -> pd.DataFrame:
 
             # Stop Loss check
             if low <= stop_loss:
-                realized += pos_size * position_left * stop_loss
+                realized += shares_n * position_left * stop_loss - entry_price
                 position_left = 0.0
                 if stop_loss < entry_price:
                     tp_reached.append("SL")
@@ -212,7 +231,7 @@ def evaluate_trades(trades_df: pd.DataFrame, stock_data: dict) -> pd.DataFrame:
                 tp_label = f"TP{i+1}"
                 if tp_label not in tp_reached and high >= tp:
                     exit_size = tp_sizes[i]
-                    realized += pos_size * exit_size * tp
+                    realized += shares_n * exit_size * tp
                     position_left -= exit_size
                     tp_reached.append(tp_label)
                     # print(f"✅ {date.date()} | {tp_label} hit at {tp}, exited {exit_size*100:.1f}% of position. Left: {position_left:.2f}")
@@ -230,14 +249,14 @@ def evaluate_trades(trades_df: pd.DataFrame, stock_data: dict) -> pd.DataFrame:
 
             # EMA crossover check
             if day["EMA_Close_8"] < day["EMA_Close_20"]:
-                realized += pos_size * position_left * close
+                realized += shares_n * position_left * close
                 position_left = 0.0
                 unrealized = 0.0
                 tp_reached.append("EMA_Cross")
                 # print(f"📉 {date.date()} | EMA crossover exit at {close}, closing trade.")
                 break
 
-            unrealized = position_left * pos_size * close
+            unrealized = position_left * shares_n * close - pos_size
 
         # Update trade row
         df.at[idx, "Position Left"] = position_left
@@ -247,3 +266,21 @@ def evaluate_trades(trades_df: pd.DataFrame, stock_data: dict) -> pd.DataFrame:
 
         # print(f"📊 Final state: Realized={realized:.2f}, Unrealized={df.at[idx,'Unrealized']:.2f}, Position Left={position_left:.2f}, TP Reached={df.at[idx,'TP Reached']}")
     return df
+
+def generate_trade_param_sets():
+    """
+    Generate all trade parameter combinations.
+    """
+    sl_offsets = [-20, 0]
+    max_tps = [4, 5]
+    skip_tps = [1, 2]
+
+    param_sets = []
+    for sl, tp, skip in product(sl_offsets, max_tps, skip_tps):
+        param_sets.append({
+            "sl_offset_pc": float(sl),
+            "max_tp": int(tp),
+            "skip_tp": int(skip)
+        })
+
+    return param_sets
