@@ -61,7 +61,8 @@ def main(
     shift = 0
 
     symbols_list = read_list_from_file("data/all-symbols-june-2025.txt")
-    # symbols_list = ['COR', 'HIG', 'NJR', 'AROC', 'CB', 'DUK', 'CF', 'KGS', 'JNJ', 'TTE', 'NOC', 'VTR', 'DVN', 'SQM', 'BKH', 'ORLY', 'NXPI', 'ROST', 'GH']
+    # symbols_list = ['COR', 'HIG', 'NJR', 'AROC', 'CB', 'DUK', 'CF', 'KGS', 'JNJ', 'TTE', 'NOC', 'VTR', 'DVN', 'SQM', 'BKH', 'ORLY', 'NXPI', 'ROST', 'GH',
+    #                 'SHEL', 'BHP', 'LNG', 'PPL', 'FNF', 'BBY', 'CMA', 'BYD', 'GXO', 'RYN', 'PII', 'LTC', 'HI', 'RRR', 'RYTM', 'MLTX', 'XENE']
 
     # 1. Download and label all data
     stock_data = download_data(
@@ -86,7 +87,8 @@ def main(
         if potential_entries:
             potential_entries_with_filters.append((potential_entries, filter_set))
 
-        # logger.info("📈 Potential entries for filter set %s: %s", filter_set, potential_entries)
+    first_value = stock_data_labeled[next(iter(stock_data_labeled))]
+    latest_day = first_value['Datetime'].values[-1]
 
     # 3. Write potential entries and their filters
     for potential_entries, filter_set in potential_entries_with_filters:
@@ -94,6 +96,7 @@ def main(
             symbols=potential_entries,
             filter_set=filter_set,
             sheet_url=sheet_url,
+            latest_day=latest_day,
             sheet_tab=potential_tab
         )
 
@@ -138,9 +141,9 @@ def main(
 
         time.sleep(1)
 
-        write_trade_tab(sheet_url=sheet_url, tab_to_write=generated_trades_tab)
+        # write_trade_tab(sheet_url=sheet_url, tab_to_write=generated_trades_tab)
 
-        time.sleep(1)
+        time.sleep(5)
 
     return 
 

@@ -144,12 +144,6 @@ def generate_trades(
         df_trades = df_trades[base_cols]
     
     return df_trades, tab_name
-    # if not df_trades.empty:
-    #     df_trades = df_trades[base_cols]
-    #     return df_trades
-    # else:
-    #     print('No trades today.')
-    #     return pd.DataFrame()
 
 def evaluate_trades(trades_df: pd.DataFrame, stock_data: dict) -> pd.DataFrame:
     """
@@ -201,10 +195,12 @@ def evaluate_trades(trades_df: pd.DataFrame, stock_data: dict) -> pd.DataFrame:
         tp_reached_raw = trade.get("TP Reached", "")
         if pd.isna(tp_reached_raw) or tp_reached_raw == "":
             tp_reached = []
-        elif isinstance(tp_reached_raw, (int, float)):
-            tp_reached = [f"TP{int(tp_reached_raw)}"]
+        elif isinstance(tp_reached_raw, str):
+            # Split by comma if multiple exits are stored in one cell
+            tp_reached = [x.strip() for x in tp_reached_raw.split(",") if x.strip()]
         else:
-            tp_reached = [f"TP{int(x)}" for x in str(tp_reached_raw).split(",") if x]
+            # Already a single label (e.g., "SL", "BE") or unexpected type
+            tp_reached = [str(tp_reached_raw)]
 
         be_price = entry_price
 
@@ -213,7 +209,7 @@ def evaluate_trades(trades_df: pd.DataFrame, stock_data: dict) -> pd.DataFrame:
 
             # Stop Loss check
             if low <= stop_loss:
-                realized += shares_n * position_left * stop_loss - entry_price
+                realized += shares_n * position_left * stop_loss - entry_price * shares_n
                 position_left = 0.0
                 if stop_loss < entry_price:
                     tp_reached.append("SL")
@@ -256,7 +252,8 @@ def evaluate_trades(trades_df: pd.DataFrame, stock_data: dict) -> pd.DataFrame:
                 # print(f"📉 {date.date()} | EMA crossover exit at {close}, closing trade.")
                 break
 
-            unrealized = position_left * shares_n * close - pos_size
+            # unrealized = position_left * shares_n * close - pos_size
+            unrealized = (close - entry_price) * shares_n
 
         # Update trade row
         df.at[idx, "Position Left"] = position_left

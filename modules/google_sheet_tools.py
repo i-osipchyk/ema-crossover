@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+import numpy as np
 from typing import List
 import logging
 from datetime import datetime, timedelta
@@ -34,7 +35,7 @@ def get_gs_client() -> gspread.Client:
     return gspread.authorize(creds)
 
 def write_potential_entries(
-    symbols: List[str], filter_set: List[str], sheet_url: str, sheet_tab: str = "Potential Setups"
+    symbols: List[str], filter_set: List[str], sheet_url: str, latest_day: np.datetime64, sheet_tab: str = "Potential Setups"
 ) -> None:
     """
     Append today's potential entry symbols to Google Sheets as a single row.
@@ -52,11 +53,11 @@ def write_potential_entries(
     client = get_gs_client()
     worksheet = client.open_by_url(sheet_url).worksheet(sheet_tab)
 
-    today_str = datetime.now().strftime("%d-%m-%Y")
-    row = [today_str, ", ".join(symbols), ", ".join(filter_set)]
+    latest_day = pd.to_datetime(latest_day).to_pydatetime().strftime("%d-%m-%Y")
+    row = [latest_day, ", ".join(symbols), ", ".join(filter_set)]
 
     worksheet.append_row(row, value_input_option="USER_ENTERED")
-    logger.info("✅ Wrote %s, %s to '%s' for %s.", ", ".join(symbols), ", ".join(filter_set), sheet_tab, today_str)
+    logger.info("✅ Wrote %s, %s to '%s' for %s.", ", ".join(symbols), ", ".join(filter_set), sheet_tab, latest_day)
 
 def get_previous_trading_day_entries(
     sheet_url: str, sheet_tab: str = "Potential Setups"
@@ -86,17 +87,8 @@ def get_previous_trading_day_entries(
             row["Date"] = None
 
     # Find the most recent previous trading day
-    today = datetime.now().date()
-    if today.weekday() == 0:   # Monday
-        prev_day = today - timedelta(days=4)
-    elif today.weekday() == 5: # Saturday
-        prev_day = today - timedelta(days=2)
-    elif today.weekday() == 6: # Sunday
-        prev_day = today - timedelta(days=3)
-    else:                      # Tue-Fri
-        prev_day = today - timedelta(days=1)
-    while prev_day.weekday() > 4:  # Skip weekends
-        prev_day -= timedelta(days=1)
+    now = datetime.now()
+    prev_day = get_last_trading_day(now)
 
     prev_rows = [row for row in rows if row["Date"] == prev_day]
     if not prev_rows:
