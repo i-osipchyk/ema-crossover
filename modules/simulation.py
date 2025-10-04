@@ -25,6 +25,12 @@ def tp_distribution(max_tp: int, skip_tp: int, coef: float) -> List[float]:
     weights = [0.0] * skip_tp + weights.tolist()
     return weights
 
+def pnl(entry_price: float, exit_price: float, share_n: float) -> float:
+        """
+        Calculates profit/loss.
+        """
+        return (exit_price - entry_price) * share_n
+
 def generate_trades(
     stock_data_for_entries, 
     stop_rule: str = 'crossover', 
@@ -165,6 +171,7 @@ def evaluate_trades(trades_df: pd.DataFrame, stock_data: dict) -> pd.DataFrame:
         entry_price = trade["Entry Price"]
         stop_loss = trade["Stop Loss"]
         risk = trade["Risk"]
+        risk_per_share = trade['Risk per Share']
         max_tp = int(trade["Max TP"])
         skip_tp = int(trade["Skip TP"])
         tp_coef = float(trade.get("TP Coef", 1.0))
@@ -184,7 +191,7 @@ def evaluate_trades(trades_df: pd.DataFrame, stock_data: dict) -> pd.DataFrame:
         df_sym = df_sym[df_sym["Datetime"] >= entry_date].reset_index(drop=True)
 
         # Build TP levels
-        tp_levels = [entry_price + (i + 1 + skip_tp) * risk for i in range(max_tp)]
+        tp_levels = [entry_price + (i + 1) * risk_per_share for i in range(max_tp)]
         tp_sizes = tp_distribution(max_tp, skip_tp, coef=tp_coef)
 
         # Track trade state
@@ -209,7 +216,7 @@ def evaluate_trades(trades_df: pd.DataFrame, stock_data: dict) -> pd.DataFrame:
 
             # Stop Loss check
             if low <= stop_loss:
-                realized += shares_n * position_left * stop_loss - entry_price * shares_n
+                realized += pnl(entry_price, stop_loss, shares_n * position_left)
                 position_left = 0.0
                 if stop_loss < entry_price:
                     tp_reached.append("SL")
@@ -227,13 +234,13 @@ def evaluate_trades(trades_df: pd.DataFrame, stock_data: dict) -> pd.DataFrame:
                 tp_label = f"TP{i+1}"
                 if tp_label not in tp_reached and high >= tp:
                     exit_size = tp_sizes[i]
-                    realized += shares_n * exit_size * tp
+                    realized += pnl(entry_price, tp, shares_n * exit_size)
                     position_left -= exit_size
                     tp_reached.append(tp_label)
                     # print(f"✅ {date.date()} | {tp_label} hit at {tp}, exited {exit_size*100:.1f}% of position. Left: {position_left:.2f}")
 
                     # Update stop loss (trailing rule)
-                    stop_loss = tp - 2 * risk if i >= 1 else be_price
+                    stop_loss = tp - 2 * risk_per_share if i >= 2 else be_price
                     # print(f"↔️ New Stop Loss set to {stop_loss}")
 
                     # If last TP reached, trade is closed
@@ -245,15 +252,14 @@ def evaluate_trades(trades_df: pd.DataFrame, stock_data: dict) -> pd.DataFrame:
 
             # EMA crossover check
             if day["EMA_Close_8"] < day["EMA_Close_20"]:
-                realized += shares_n * position_left * close
+                realized += pnl(entry_price, close, shares_n * position_left)
                 position_left = 0.0
                 unrealized = 0.0
                 tp_reached.append("EMA_Cross")
                 # print(f"📉 {date.date()} | EMA crossover exit at {close}, closing trade.")
                 break
 
-            # unrealized = position_left * shares_n * close - pos_size
-            unrealized = (close - entry_price) * shares_n
+            unrealized = pnl(entry_price, close, shares_n * position_left)
 
         # Update trade row
         df.at[idx, "Position Left"] = position_left
