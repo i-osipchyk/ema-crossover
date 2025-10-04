@@ -172,7 +172,7 @@ def mark_crossovers(df: pd.DataFrame, short_ma_params: Tuple, long_ma_params: Tu
     except Exception as e:
         raise RuntimeError(f"Failed to calculate MA Crossover: {e}")  
 
-def process_symbol_df(
+def add_indicators(
     df: pd.DataFrame,
     ma_params: List[int] = [
         (8, "Close", "EMA"), (20, "Close", "EMA"), (34, "Close", "EMA"), (50, "Close", "EMA"), (200, "Close", "EMA")

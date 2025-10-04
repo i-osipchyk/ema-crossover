@@ -72,7 +72,7 @@ def main(
         batch_size=100,
     )
 
-    stock_data_labeled = apply_to_dict(stock_data, process_symbol_df)
+    stock_data_labeled = apply_to_dict(stock_data, add_indicators)
 
     # 2. Find potential entries based on different sets of filters
     potential_entries_with_filters = []

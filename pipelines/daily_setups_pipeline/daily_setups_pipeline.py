@@ -46,7 +46,7 @@ def main(args):
             batch_size=100,
         )
 
-        stock_data_labeled = apply_to_dict(stock_data, process_symbol_df)
+        stock_data_labeled = apply_to_dict(stock_data, add_indicators)
 
         # save snapshot with timestamp
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
