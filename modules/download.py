@@ -75,6 +75,9 @@ def download_data(symbols: List[str], period: str, interval: str, batch_size: in
             ]
             df_symbol["Symbol"] = symbol
 
+            if df_symbol.empty or df_symbol["Open"].isna().all():
+                continue
+
             results[symbol] = df_symbol
 
         time.sleep(delay)
