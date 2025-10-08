@@ -217,4 +217,7 @@ ENV/
 # daily data update
 /daily_labeled/
 
+# data folder
+/data/historical_data
+
 # End of https://www.gitignore.io/api/macos,linux,django,python,pycharm
