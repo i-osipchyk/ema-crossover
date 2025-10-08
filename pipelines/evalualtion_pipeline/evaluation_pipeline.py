@@ -20,8 +20,34 @@ from modules.google_sheet_tools import *
 from modules.google_sheets_manager import GoogleSheetsManager
 
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Remove existing handlers (important if something configured logging before)
+for handler in logging.root.handlers[:]:
+    logging.root.removeHandler(handler)
+
+# Setup paths
+script_dir = os.path.dirname(os.path.abspath(__file__))
+log_dir = os.path.join(script_dir, "logs")
+os.makedirs(log_dir, exist_ok=True)
+
+log_filename = os.path.join(
+    log_dir,
+    f"pipeline_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+)
+
+# Configure logging to file + console
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler(log_filename, mode="a", encoding="utf-8"),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger()  # use root logger
+
+logger.info("Logger initialized successfully!")
+logger.info(f"Writing logs to: {log_filename}")
 
 
 DEFAULT_FILTER_SETS = [
@@ -52,17 +78,22 @@ def main(
         filters (List[str]): List of filter sets to apply for potential entries.
         symbols_list (List[str], optional): List of symbols. Defaults to a test list.
     """
+    logger.info("Starting daily trading pipeline.\n")
+
     try:
+        logger.info(f"Connecting to Google Sheets: {sheet_url}")
         gs_manager = GoogleSheetsManager(sheet_url=sheet_url)
-        logger.info("Successfully connected to Google Sheets.")
+        logger.info("Successfully connected to Google Sheets.\n")
     except Exception as e:
         logger.error(f"Could not connect to Google Sheets due to error: {e}")
 
-    logger.info("Downloading and labeling data...")
-
     # 1. Download and label all data
     try:
-        symbols_list = read_list_from_file("data/all-symbols-june-2025.txt")
+        symbol_list_txt_path = "data/all-symbols-june-2025.txt"
+        logger.info("Fetching symbol list from {symbol_list_txt_path}...")
+        symbols_list = read_list_from_file(symbol_list_txt_path)
+
+        logger.info(f"Downloading data for {len(symbols_list)} symbols...")
 
         stock_data = download_data(
             symbols=symbols_list,
@@ -71,77 +102,119 @@ def main(
             batch_size=100,
         )
 
-        stock_data_labeled = apply_to_dict(stock_data, add_indicators)
+        logger.info(f"Adding indicators...")
+
+        stock_data_with_indicators = apply_to_dict(stock_data, add_indicators)
+
+        logger.info(f"Downloaded and added indicators for {len(stock_data_with_indicators)}.")
+        logger.info(f"Example symbol: {list(stock_data_with_indicators.keys())[0]}")
+        logger.info(f"Data columns: {list(next(iter(stock_data_with_indicators.values())).columns)}.\n")
     except Exception as e:
-        logger.error(f"Could not download and label data due to error: {e}") 
+        logger.error(f"Could not download and add indicators to data due to error: {e}")
 
     # 2. Find potential entries based on different sets of filters
-    potential_entries_with_filters = [
-        (entries, fset)
-        for fset in filter_sets
-        if (entries := find_potential_entries(stock_data_labeled, filter_set=fset)[0])
-    ]
+    try:
+        logger.info(f"Finding potential entries for {len(filter_sets)} filter sets...")
+        logger.debug(f"Filter sets: {filter_sets}")
+        
+        potential_entries_with_filters = [
+            (entries, fset)
+            for fset in filter_sets
+            if (entries := find_potential_entries(stock_data_with_indicators, filter_set=fset)[0])
+        ]
+
+        logger.info(f"Found {len(potential_entries_with_filters)} potential entries sets.\n")
+    except Exception as e:
+        logger.error(f"Could not find potential entries due to error: {e}")
 
     # 3. Write potential entries and their filters
-    latest_day = next(iter(stock_data_labeled.values()))['Datetime'].values[-1] # Get latest day
+    try:
+        logger.info(f"Writing potential entries and filters to Google Sheets...")
 
-    gs_manager.write_potential_entries(
-        latest_day=latest_day,
-        potential_entries_with_filters=potential_entries_with_filters
-    )
+        latest_day = next(iter(stock_data_with_indicators.values()))['Datetime'].values[-1] # Get latest day
+        
+        gs_manager.write_potential_entries(
+            latest_day=latest_day,
+            potential_entries_with_filters=potential_entries_with_filters
+        )
+
+        logger.info("Successfully wrote potential entries.\n")
+    except Exception as e:
+        logger.error(f"Could not write potential entries due to error: {e}")
 
     # 4. Read all potential entries from the previous trading day and all existing trade tabs
-    prev_day_entries = gs_manager.read_previous_trading_day_entries()
-    logger.info("Previous trading day entries: %s", prev_day_entries)
+    try:
+        logger.info("Reading previous day setups...")
 
-    trade_tabs = gs_manager.read_trade_tabs()
-    logger.info(f"Found {len(trade_tabs)} trade tabs.")
+        prev_day_entries = gs_manager.read_previous_trading_day_setups()
+
+        logger.info(f"Previous trading day setups: {prev_day_entries}.\n")
+    except Exception as e:
+        logger.error(f"Could not read previous day setups due to error: {e}")
+
+    try:
+        logger.info("Reading trade tabs setups...")
+
+        trade_tabs = gs_manager.read_trade_tabs()
+
+        logger.info(f"Found {len(trade_tabs)} trade tabs.\n")
+    except Exception as e:
+        logger.error(f"Could not read trade tabs due to error: {e}")
 
     # TODO: Select data for generation in trade generation function
     # Filter stock data for these entries
     stock_data_for_entries = {
-        sym: df for sym, df in stock_data_labeled.items() if sym in prev_day_entries
+        sym: df for sym, df in stock_data_with_indicators.items() if sym in prev_day_entries
     }
 
     # 5. Generate and write trades for all trade parameter sets and evaluate trades in these tabs
-    new_trades_tab_names = []
+    try:
+        logger.info("Generating and writing trades, updating opened trades in these tabs...")
+        new_trades_tab_names = []
 
-    for trade_params in generate_trade_param_sets():
-        new_trades, new_trades_tab_name = generate_trades(
-            stock_data_for_entries,
-            **trade_params
-        )
+        for trade_params in generate_trade_param_sets():
+            new_trades, new_trades_tab_name = generate_trades(
+                stock_data_for_entries,
+                **trade_params
+            )
 
-        if new_trades.empty:
-            logger.info(f"No trades generated for tab '{new_trades_tab_name}'. Skipping.")
-            continue
+            if new_trades.empty:
+                logger.info(f"No trades generated for tab '{new_trades_tab_name}'. Skipping.")
+                continue
 
-        gs_manager.update_trades(
-            new_trades=new_trades,
-            tab_name=new_trades_tab_name,
-            eval_func=evaluate_trades,
-            eval_data=stock_data_labeled
-        )
+            gs_manager.update_trades(
+                new_trades=new_trades,
+                tab_name=new_trades_tab_name,
+                eval_func=evaluate_trades,
+                eval_data=stock_data_with_indicators
+            )
 
-        new_trades_tab_names.append(new_trades_tab_name)
+            new_trades_tab_names.append(new_trades_tab_name)
 
-        time.sleep(3)
+            time.sleep(3)
+
+        logger.info("All trades written and updated successfully.\n")
+    except Exception as e:
+        logger.error(f"Could not process trades due to error: {e}")
 
     # 6. Evaluate trades in other tabs
-    additional_trade_tabs = list(set(trade_tabs) - set(new_trades_tab_names))
-    logger.info(f"Found {len(additional_trade_tabs)} additional trade tabs. Evaluating trades...")
+    try:
+        additional_trade_tabs = list(set(trade_tabs) - set(new_trades_tab_names))
+        logger.info(f"Updating trades in other {len(additional_trade_tabs)} tabs...")
 
-    for trade_tab in additional_trade_tabs:
-        gs_manager.update_trades(
-            new_trades=pd.DataFrame(),
-            tab_name=trade_tab,
-            eval_func=evaluate_trades,
-            eval_data=stock_data_labeled
-        )
+        for trade_tab in additional_trade_tabs:
+            gs_manager.update_trades(
+                new_trades=pd.DataFrame(),
+                tab_name=trade_tab,
+                eval_func=evaluate_trades,
+                eval_data=stock_data_with_indicators
+            )
 
-    logger.info("All trades evaluated and updated successfully.")
+        logger.info("All trades updated successfully.\n")
+    except Exception as e:
+        logger.error(f"Could not update trades due to error: {e}")
 
-    return 
+    logger.info("Pipeline finished successfully.") 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run daily stock trading pipeline.")
@@ -172,5 +245,3 @@ if __name__ == "__main__":
         filter_sets=args.filter_sets,
         symbols_list=args.symbols,
     )
-
-    logger.info("Pipeline finished successfully.")

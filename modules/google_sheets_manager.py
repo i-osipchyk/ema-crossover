@@ -147,7 +147,7 @@ class GoogleSheetsManager:
             self.logger.info(f"Trade tab already exists: {tab_to_write}")
 
 
-    def read_previous_trading_day_entries(self) -> List[str]:
+    def read_previous_trading_day_setups(self) -> List[str]:
         """
         Fetch symbols from the previous trading day.
 
