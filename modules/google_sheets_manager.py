@@ -21,6 +21,23 @@ class GoogleSheetsManager:
         self.trade_tabs_list_tab = trade_tabs_list_tab
         self.client = self._get_gs_client()
         self.logger = logging.getLogger()
+        self._initialize_tabs()
+
+
+    def _initialize_tabs(self):
+        spreadsheet = self.client.open_by_url(self.sheet_url)
+        existing_tabs = [ws.title for ws in spreadsheet.worksheets()]
+        if self.test_tab not in existing_tabs:
+            worksheet = spreadsheet.add_worksheet(title=self.test_tab, rows=1000, cols=50)
+            self.logger.info(f"Initialized tab {self.test_tab}")
+        if self.potential_setups_tab not in existing_tabs:
+            worksheet = spreadsheet.add_worksheet(title=self.potential_setups_tab, rows=1000, cols=10)
+            worksheet.update("A1", [["Date", "Symbols", "Filter Set"]])
+            self.logger.info(f"Initialized tab {self.potential_setups_tab}")
+        if self.trade_tabs_list_tab not in existing_tabs:
+            worksheet = spreadsheet.add_worksheet(title=self.trade_tabs_list_tab, rows=1000, cols=11)
+            worksheet.update("A1", [["Trade Tabs"]])
+            self.logger.info(f"Initialized tab {self.trade_tabs_list_tab}")
 
 
     def _get_gs_client(self) -> gspread.Client:
@@ -77,7 +94,57 @@ class GoogleSheetsManager:
         # Write all rows in one request
         worksheet.append_rows(rows_to_append, value_input_option="USER_ENTERED")
 
-        self.logger.info(f"✅ Wrote {len(rows_to_append)} potential setups to '{self.potential_setups_tab}' for {latest_day_str}.")
+        self.logger.info(f"Wrote {len(rows_to_append)} potential setups to {self.potential_setups_tab} for {latest_day_str}.")
+
+
+    def read_trade_tabs(self, tab_name: str = "Trade Tabs List"):
+        """
+        Read all trade tabs from the 'Trade Tabs List' worksheet.
+        Creates the worksheet with a header if it does not exist.
+        """
+        spreadsheet = self.client.open_by_url(self.sheet_url)
+
+        try:
+            worksheet = spreadsheet.worksheet(tab_name)
+        except gspread.WorksheetNotFound:
+            # Create the worksheet with header row
+            worksheet = spreadsheet.add_worksheet(title=tab_name, rows=1000, cols=1)
+            worksheet.append_row(["Trade Tabs"], value_input_option="USER_ENTERED")
+            self.logger.info("Created new worksheet: %s", tab_name)
+
+        # Get all values (first row = headers)
+        all_values = worksheet.get_all_values()
+        if not all_values or len(all_values) < 2:
+            self.logger.warning("No trade tabs found in '%s'.", tab_name)
+            return []
+
+        # Flatten values (one tab per row)
+        trade_tabs = [row[0] for row in all_values[1:] if row]
+        self.logger.info("Found %s trade tabs", len(trade_tabs))
+
+        return trade_tabs
+
+
+    def write_trade_tab_to_list(self, tab_to_write: str) -> None:
+        """Append a trade tab name to the 'Trade Tabs List' sheet if it doesn't exist."""
+        spreadsheet = self.client.open_by_url(self.sheet_url)
+
+        try:
+            worksheet = spreadsheet.worksheet(self.trade_tabs_list_tab)
+        except gspread.WorksheetNotFound:
+            worksheet = spreadsheet.add_worksheet(title=self.trade_tabs_list_tab, rows=1000, cols=1)
+            worksheet.update("A1", [["Trade Tabs"]])
+            self.logger.info(f"Created new worksheet: {self.trade_tabs_list_tab}")
+
+        existing_tabs = {
+            row[0] for row in worksheet.get_all_values()[1:] if row
+        }
+
+        if tab_to_write not in existing_tabs:
+            worksheet.append_row([tab_to_write], value_input_option="USER_ENTERED")
+            self.logger.info(f"Added new trade tab: {tab_to_write}")
+        else:
+            self.logger.info(f"Trade tab already exists: {tab_to_write}")
 
 
     def read_previous_trading_day_entries(self) -> List[str]:
@@ -134,7 +201,7 @@ class GoogleSheetsManager:
         try:
             worksheet = spreadsheet.worksheet(tab_name)
         except gspread.WorksheetNotFound:
-            raise gspread.WorksheetNotFound(f"Worksheet '{tab_name}' not found in spreadsheet!")
+            raise gspread.WorksheetNotFound(f"Worksheet {tab_name} not found in spreadsheet!")
 
         # Get all values (first row = headers)
         all_values = worksheet.get_all_values()
@@ -184,7 +251,7 @@ class GoogleSheetsManager:
         try:
             existing_df = self.read_trades(tab_name)
             if existing_df.empty:
-                self.logger.info(f"🆕 '{tab_name}' found but empty → writing new trades.")
+                self.logger.info(f"{tab_name} found but empty → writing new trades.")
                 self._write_df_to_sheet(spreadsheet, tab_name, new_trades)
                 return
             
@@ -192,6 +259,7 @@ class GoogleSheetsManager:
             combined_df = pd.concat([existing_df_eval, new_trades], ignore_index=True)
 
             if {"Date", "Symbol"}.issubset(combined_df.columns):
+                combined_df["Date"] = pd.to_datetime(combined_df["Date"])
                 combined_df = combined_df.drop_duplicates(subset=["Date", "Symbol"], keep="first")
 
             if "Date" in combined_df.columns:
@@ -199,11 +267,12 @@ class GoogleSheetsManager:
             
             self._write_df_to_sheet(spreadsheet, tab_name, combined_df)
 
-            self.logger.info(f"✅ '{tab_name}' updated successfully with evaluated + new trades.")
+            self.logger.info(f"{tab_name} updated successfully with evaluated + new trades.")
 
         except gspread.WorksheetNotFound:
-            self.logger.info(f"📄 '{tab_name}' not found → creating and writing new trades.")
+            self.logger.info(f"{tab_name} not found → creating and writing new trades.")
             spreadsheet.add_worksheet(title=tab_name, rows=1000, cols=50)
             self._write_df_to_sheet(spreadsheet, tab_name, new_trades)
-            self.logger.info(f"✅ Created new tab '{tab_name}' and wrote {len(new_trades)} new trades.")
+            self.write_trade_tab_to_list(tab_name)
+            self.logger.info(f"Created new tab {tab_name} and wrote {len(new_trades)} new trades.")
             

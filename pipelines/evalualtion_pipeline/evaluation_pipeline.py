@@ -17,6 +17,7 @@ from modules.pipeline import *
 from modules.tools import *
 from modules.simulation import *
 from modules.google_sheet_tools import *
+from modules.google_sheets_manager import GoogleSheetsManager
 
 
 logging.basicConfig(level=logging.INFO)
@@ -29,121 +30,116 @@ DEFAULT_FILTER_SETS = [
 ]
 
 
-# TODO: handle Google Sheets API requests limit
-
 def main(
+    sheet_url: str,
     filter_sets: List[List[str]],
-    symbols_list: List[str] = None,
-    sheet_url: str = "https://docs.google.com/spreadsheets/d/16HZfFIu37ZG7kRgLDI9SqS5xPhb3pn3iY2ubOymVseU/edit#gid=1171524967",
-    potential_tab: str = "Potential Setups"
+    symbols_list: List[str] = None
 ) -> Dict[str, Any]:
     """
-    Full daily pipeline:
-    - Download and label stock data
-    - Find potential entries
-    - Write today's potential entries to Google Sheets
-    - Fetch previous trading day's entries
-    - Generate trades for previous day entries
-    - Append trades to Google Sheets
+    Workflow:
+        1. Connect to Google Sheets
+        2. Download historical stock data and compute indicators.
+        3. Identify potential trade entries using provided filter sets.
+        4. Write potential entries to the "Potential Setups" tab.
+        5. Read previous day entries and existing trade tabs.
+        6. Filter stock data for previous day entries.
+        7. Generate new trades for all trade parameter sets and update corresponding tabs.
+        8. Evaluate trades in remaining tabs.
+        9. Log results and return a summary dictionary.
 
     Args:
+        sheet_url (str): Google Sheets URL.
         filters (List[str]): List of filter sets to apply for potential entries.
         symbols_list (List[str], optional): List of symbols. Defaults to a test list.
-        sheet_url (str): Google Sheets URL.
-        potential_tab (str): Tab name for potential entries.
-
-    Returns:
-        Dict[str, Any]: {"today": list of today's potential entries,
-                         "previous_day": list of previous trading day entries,
-                         "trades_df": DataFrame of trades}
     """
-    logger.info("⬇️ Downloading fresh data...")
-    shift = 0
+    try:
+        gs_manager = GoogleSheetsManager(sheet_url=sheet_url)
+        logger.info("Successfully connected to Google Sheets.")
+    except Exception as e:
+        logger.error(f"Could not connect to Google Sheets due to error: {e}")
 
-    symbols_list = read_list_from_file("data/all-symbols-june-2025.txt")
-    # symbols_list = ['COR', 'HIG', 'NJR', 'AROC', 'CB', 'DUK', 'CF', 'KGS', 'JNJ', 'TTE', 'NOC', 'VTR', 'DVN', 'SQM', 'BKH', 'ORLY', 'NXPI', 'ROST', 'GH',
-    #                 'SHEL', 'BHP', 'LNG', 'PPL', 'FNF', 'BBY', 'CMA', 'BYD', 'GXO', 'RYN', 'PII', 'LTC', 'HI', 'RRR', 'RYTM', 'MLTX', 'XENE']
+    logger.info("Downloading and labeling data...")
 
     # 1. Download and label all data
-    stock_data = download_data(
-        symbols=symbols_list,
-        period="500d",
-        interval="1d",
-        batch_size=100,
-    )
+    try:
+        symbols_list = read_list_from_file("data/all-symbols-june-2025.txt")
 
-    stock_data_labeled = apply_to_dict(stock_data, add_indicators)
+        stock_data = download_data(
+            symbols=symbols_list,
+            period="500d",
+            interval="1d",
+            batch_size=100,
+        )
+
+        stock_data_labeled = apply_to_dict(stock_data, add_indicators)
+    except Exception as e:
+        logger.error(f"Could not download and label data due to error: {e}") 
 
     # 2. Find potential entries based on different sets of filters
-    potential_entries_with_filters = []
-
-    for filter_set in filter_sets:
-        potential_entries, filter_set = find_potential_entries(
-            stock_data_labeled,
-            shift=shift,
-            filter_set=filter_set,
-        )
-
-        if potential_entries:
-            potential_entries_with_filters.append((potential_entries, filter_set))
-
-    first_value = stock_data_labeled[next(iter(stock_data_labeled))]
-    latest_day = first_value['Datetime'].values[-1]
+    potential_entries_with_filters = [
+        (entries, fset)
+        for fset in filter_sets
+        if (entries := find_potential_entries(stock_data_labeled, filter_set=fset)[0])
+    ]
 
     # 3. Write potential entries and their filters
-    for potential_entries, filter_set in potential_entries_with_filters:
-        write_potential_entries(
-            symbols=potential_entries,
-            filter_set=filter_set,
-            sheet_url=sheet_url,
-            latest_day=latest_day,
-            sheet_tab=potential_tab
-        )
+    latest_day = next(iter(stock_data_labeled.values()))['Datetime'].values[-1] # Get latest day
 
-        time.sleep(1)
-
-    # 4. Read list of all trade tabs
-    trade_tabs = read_trade_tabs(sheet_url=sheet_url)
-
-    # 5. For each trade tab make evaluation and update it
-    for trade_tab in trade_tabs:
-        # Get existing trades, evaluate them and update sheet
-        existing_trades = read_trades_from_sheet(sheet_url=sheet_url, tab_name=trade_tab)
-        existing_trades_evaluated = evaluate_trades(existing_trades, stock_data_labeled)
-        update_trades_sheet(sheet_url=sheet_url, tab_name=trade_tab, evaluated_trades=existing_trades_evaluated)
-
-        time.sleep(1)
-
-    # 6. Get all potential entries from previous day
-    prev_day_entries = get_previous_trading_day_entries(
-        sheet_url=sheet_url,
-        sheet_tab=potential_tab
+    gs_manager.write_potential_entries(
+        latest_day=latest_day,
+        potential_entries_with_filters=potential_entries_with_filters
     )
 
-    logger.info("📅 Previous trading day entries: %s", prev_day_entries)
+    # 4. Read all potential entries from the previous trading day and all existing trade tabs
+    prev_day_entries = gs_manager.read_previous_trading_day_entries()
+    logger.info("Previous trading day entries: %s", prev_day_entries)
 
-    # Filter stock data for entries 
-    stock_data_for_entries = {sym: df for sym, df in stock_data_labeled.items() if sym in prev_day_entries}
+    trade_tabs = gs_manager.read_trade_tabs()
+    logger.info(f"Found {len(trade_tabs)} trade tabs.")
 
-    # 7. Generate trades for all trade tabs
+    # TODO: Select data for generation in trade generation function
+    # Filter stock data for these entries
+    stock_data_for_entries = {
+        sym: df for sym, df in stock_data_labeled.items() if sym in prev_day_entries
+    }
+
+    # 5. Generate and write trades for all trade parameter sets and evaluate trades in these tabs
+    new_trades_tab_names = []
+
     for trade_params in generate_trade_param_sets():
-        trades_df, generated_trades_tab = generate_trades(
+        new_trades, new_trades_tab_name = generate_trades(
             stock_data_for_entries,
             **trade_params
         )
 
-        if not trades_df.empty:
-            write_trades_to_sheet(
-                trades_df=trades_df,
-                sheet_url=sheet_url,
-                tab_name=generated_trades_tab
-            )
+        if new_trades.empty:
+            logger.info(f"No trades generated for tab '{new_trades_tab_name}'. Skipping.")
+            continue
 
-        time.sleep(1)
+        gs_manager.update_trades(
+            new_trades=new_trades,
+            tab_name=new_trades_tab_name,
+            eval_func=evaluate_trades,
+            eval_data=stock_data_labeled
+        )
 
-        # write_trade_tab(sheet_url=sheet_url, tab_to_write=generated_trades_tab)
+        new_trades_tab_names.append(new_trades_tab_name)
 
-        time.sleep(5)
+        time.sleep(3)
+
+    # 6. Evaluate trades in other tabs
+    additional_trade_tabs = list(set(trade_tabs) - set(new_trades_tab_names))
+    logger.info(f"Found {len(additional_trade_tabs)} additional trade tabs. Evaluating trades...")
+
+    for trade_tab in additional_trade_tabs:
+        gs_manager.update_trades(
+            new_trades=pd.DataFrame(),
+            tab_name=trade_tab,
+            eval_func=evaluate_trades,
+            eval_data=stock_data_labeled
+        )
+
+    logger.info("All trades evaluated and updated successfully.")
 
     return 
 
@@ -168,20 +164,13 @@ if __name__ == "__main__":
         default="https://docs.google.com/spreadsheets/d/16HZfFIu37ZG7kRgLDI9SqS5xPhb3pn3iY2ubOymVseU/edit#gid=1171524967",
         help="Google Sheets URL"
     )
-    parser.add_argument(
-        "--potential_tab",
-        type=str,
-        default="Potential Setups",
-        help="Tab name for potential entries"
-    )
 
     args = parser.parse_args()
 
     result = main(
+        sheet_url=args.sheet_url,
         filter_sets=args.filter_sets,
         symbols_list=args.symbols,
-        sheet_url=args.sheet_url,
-        potential_tab=args.potential_tab
     )
 
     logger.info("Pipeline finished successfully.")
