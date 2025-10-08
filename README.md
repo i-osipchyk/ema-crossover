@@ -15,6 +15,8 @@ The idea behind the project is that it is possible to use simple indicators and 
 
 First results show that this approach works better or more expensive stocks, where the presence of institutions is higher. Therefore, it may be a good idea to rely not only on statistics, but also on sentiment using LLMs.
 
+Tasks are tracked on [this Trello board](https://trello.com/invite/b/68e29c62d2e6833c81b8fb16/ATTI21defdf958e0dba9ae2323d3fdcad69c194A02F8/money-printing-machine).
+
 ## Features
 
 #### ✅ Current
@@ -61,3 +63,4 @@ TODO
 - **September 24, 2025:** added automatic evaluation pipeline
 - **September 27, 2025:** added small grid search to automatic evaluation pipeline
 - **September 29, 2025:** not commited yet, but in the second stage of analysis in found out that the error made in the first one is bigger than I thought. There is incorrect entry condition: if there is a gap between crossover day high and entry day open, entry price will be crossover day high even though it wasn't possible to make that entry in regular trading hours. That draws down EV quite a lot, though it remains positive and there are hopes to increase it. Evaluation pipeline was configured correctly from the beginning. With the number of trades it generates daily it can be soon used for the evaluation. Meanwhile, I continue with the second aprt of analysis to improve the strategy. This situation opened a few possibilities in front of me, for example using gap as a filter.
+- **October 8, 2025:** improved Google Sheets connection and logging in evaluation pipeline. 
