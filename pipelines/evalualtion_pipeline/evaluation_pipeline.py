@@ -50,6 +50,7 @@ def main(
     filter_sets_file: str,
     symbols_file: str,
     trade_params_file: str,
+    indicators_file: str,
     period: str,
     interval: str,
 ) -> None:
@@ -89,21 +90,26 @@ def main(
         logger.info(f"Downloading data for {len(symbols_list)} symbols...")
 
         stock_data = download_data(
-            symbols=symbols_list,
+            symbols=symbols_list[:50],
             period=period,
             interval=interval,
             batch_size=100,
         )
 
         logger.info(f"Adding indicators...")
+        logger.info(f"Fetching indicators from {indicators_file}...")
 
-        stock_data_with_indicators = apply_to_dict(stock_data, add_indicators)
+        with open(indicators_file, "r", encoding="utf-8") as f:
+            indicators = json.load(f)
+
+        stock_data_with_indicators = apply_to_dict(stock_data, add_indicators, indicators_config=indicators)
 
         logger.info(f"Downloaded and added indicators for {len(stock_data_with_indicators)}.")
         logger.info(f"Example symbol: {list(stock_data_with_indicators.keys())[0]}")
         logger.info(f"Data columns: {list(next(iter(stock_data_with_indicators.values())).columns)}.\n")
     except Exception as e:
         logger.error(f"Could not download and add indicators to data due to error: {e}")
+        raise
 
     # 2. Find potential entries based on different sets of filters
     try:
@@ -235,6 +241,12 @@ if __name__ == "__main__":
         help="Path to file containing list of symbols"
     )
     parser.add_argument(
+        "--indicators_file",
+        type=str,
+        default="pipeline_params/indicators/default_indicators.json",
+        help="Path to file containing list of symbols"
+    )
+    parser.add_argument(
         "--sheet_url",
         type=str,
         default="https://docs.google.com/spreadsheets/d/16HZfFIu37ZG7kRgLDI9SqS5xPhb3pn3iY2ubOymVseU/edit#gid=1171524967",
@@ -250,6 +262,7 @@ if __name__ == "__main__":
         filter_sets_file=args.filter_sets_file,
         symbols_file=args.symbols_file,
         trade_params_file=args.trade_param_file,
+        indicators_file=args.indicators_file,
         period=args.period,
         interval=args.interval
     )

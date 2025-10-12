@@ -1,0 +1,28 @@
+{
+  "moving_averages": [
+    [8, "Close", "EMA"],
+    [20, "Close", "EMA"],
+    [34, "Close", "EMA"],
+    [50, "Close", "EMA"],
+    [200, "Close", "EMA"]
+  ],
+  "crossovers": [
+    [[8, "Close", "EMA"], [20, "Close", "EMA"]]
+  ],
+  "atr": {
+    "period": 14
+  },
+  "macd": {
+    "fast_period": 12,
+    "slow_period": 26,
+    "signal_period": 9,
+    "source_col": "Close"
+  },
+  "candle_color": {},
+  "gap": {},
+  "percentage_change": {},
+  "rsi": {
+    "period": 14,
+    "source_col": "Close"
+  }
+}
