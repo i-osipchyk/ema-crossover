@@ -63,4 +63,5 @@ TODO
 - **September 24, 2025:** added automatic evaluation pipeline
 - **September 27, 2025:** added small grid search to automatic evaluation pipeline
 - **September 29, 2025:** not commited yet, but in the second stage of analysis in found out that the error made in the first one is bigger than I thought. There is incorrect entry condition: if there is a gap between crossover day high and entry day open, entry price will be crossover day high even though it wasn't possible to make that entry in regular trading hours. That draws down EV quite a lot, though it remains positive and there are hopes to increase it. Evaluation pipeline was configured correctly from the beginning. With the number of trades it generates daily it can be soon used for the evaluation. Meanwhile, I continue with the second aprt of analysis to improve the strategy. This situation opened a few possibilities in front of me, for example using gap as a filter.
-- **October 8, 2025:** improved Google Sheets connection and logging in evaluation pipeline. 
+- **October 8, 2025:** improved Google Sheets connection and logging in evaluation pipeline.
+- **October 12, 2025:** parametrized evaluation pipeline 
