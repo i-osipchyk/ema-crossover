@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
-from typing import List
+import json
+from typing import List, Dict, Any
 from datetime import datetime
 from itertools import product
 
@@ -276,20 +277,25 @@ def evaluate_trades(trades_df: pd.DataFrame, stock_data: dict) -> pd.DataFrame:
         # print(f"📊 Final state: Realized={realized:.2f}, Unrealized={df.at[idx,'Unrealized']:.2f}, Position Left={position_left:.2f}, TP Reached={df.at[idx,'TP Reached']}")
     return df
 
-def generate_trade_param_sets():
-    """
-    Generate all trade parameter combinations.
-    """
-    sl_offsets = [-20, 0]
-    max_tps = [4, 5]
-    skip_tps = [1, 2]
 
-    param_sets = []
-    for sl, tp, skip in product(sl_offsets, max_tps, skip_tps):
-        param_sets.append({
-            "sl_offset_pc": float(sl),
-            "max_tp": int(tp),
-            "skip_tp": int(skip)
-        })
+def generate_trade_param_sets(json_file) -> List[Dict[str, Any]]:
+    """
+    Generate all trade parameter combinations from a JSON configuration file.
+    
+    Args:
+        json_file (str): Path to save/load the generated parameter grid.
+        
+    Returns:
+        List[Dict[str, Any]]: List of trade parameter dictionaries.
+    """
+    # Load parameter values from JSON
+    with open(json_file, "r", encoding="utf-8") as f:
+        params_dict = json.load(f)
+
+    # Generate all combinations dynamically
+    keys = list(params_dict.keys())
+    values_product = list(product(*(params_dict[key] for key in keys)))
+
+    param_sets = [dict(zip(keys, values)) for values in values_product]
 
     return param_sets

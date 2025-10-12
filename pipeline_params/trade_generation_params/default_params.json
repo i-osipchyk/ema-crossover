@@ -1,0 +1,6 @@
+{
+  "sl_offset_pc": [-20, 0],
+  "max_tp": [4, 5],
+  "skip_tp": [1, 2],
+  "extra_param": [10, 20]
+}

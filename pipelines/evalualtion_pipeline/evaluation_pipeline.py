@@ -49,6 +49,7 @@ def main(
     sheet_url: str,
     filter_sets_file: str,
     symbols_file: str,
+    trade_params_file: str,
     period: str,
     interval: str,
 ) -> None:
@@ -160,10 +161,15 @@ def main(
 
     # 5. Generate and write trades for all trade parameter sets and evaluate trades in these tabs
     try:
+        logger.info(f"Fetching trade parameters from {trade_params_file}...")
+
+        with open(trade_params_file, "r", encoding="utf-8") as f:
+            trade_params_grid = json.load(f)
+
         logger.info("Generating and writing trades, updating opened trades in these tabs...")
         new_trades_tab_names = []
 
-        for trade_params in generate_trade_param_sets():
+        for trade_params in generate_trade_param_sets(trade_params_grid):
             new_trades, new_trades_tab_name = generate_trades(
                 stock_data_with_indicators,
                 prev_day_entries,
@@ -213,13 +219,19 @@ if __name__ == "__main__":
     parser.add_argument(
         "--filter_sets_file",
         type=str,
-        default='filter_sets/default_sets.json',
+        default='pipeline_params/filter_sets/default_sets.json',
         help="Path to JSON file containing filter sets (e.g., 'configs/filter_sets.json')"
     )
     parser.add_argument(
         "--symbols_file",
         type=str,
-        default="data/all-symbols-june-2025.txt",
+        default="pipeline_params/symbol_lists/all-symbols-june-2025.txt",
+        help="Path to file containing list of symbols"
+    )
+    parser.add_argument(
+        "--trade_param_file",
+        type=str,
+        default="pipeline_params/trade_generation_params/default_params.json",
         help="Path to file containing list of symbols"
     )
     parser.add_argument(
@@ -237,6 +249,7 @@ if __name__ == "__main__":
         sheet_url=args.sheet_url,
         filter_sets_file=args.filter_sets_file,
         symbols_file=args.symbols_file,
+        trade_params_file=args.trade_param_file,
         period=args.period,
         interval=args.interval
     )
