@@ -7,9 +7,8 @@ import logging
 import numpy as np
 import pandas as pd
 import argparse
-from datetime import datetime
 from typing import Dict, List, Optional, Any
-import time
+import time as timer
 
 from modules.download import *
 from modules.indicators import *
@@ -191,7 +190,7 @@ def main(
 
             new_trades_tab_names.append(new_trades_tab_name)
 
-            time.sleep(3)
+            timer.sleep(3)
 
         logger.info("All trades written and updated successfully.\n")
     except Exception as e:
