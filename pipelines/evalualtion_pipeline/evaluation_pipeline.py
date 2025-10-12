@@ -1,14 +1,10 @@
 import os
-from datetime import datetime, timedelta
-from typing import List
-import gspread
-from google.oauth2.service_account import Credentials
+from datetime import datetime
 import logging
-import numpy as np
 import pandas as pd
 import argparse
-from typing import Dict, List, Optional, Any
 import time as timer
+import json
 
 from modules.download import *
 from modules.indicators import *
@@ -49,17 +45,13 @@ logger.info("Logger initialized successfully!")
 logger.info(f"Writing logs to: {log_filename}")
 
 
-DEFAULT_FILTER_SETS = [
-    ["Above_EMA_34", "Above_EMA_50", "Above_EMA_200", "MACD_Positive", "Volume", "Price", "ATR"],
-    ["Above_EMA_34", "Above_EMA_50", "Above_EMA_200", "MACD_Positive", "MACD_Signal_Negative", "Volume", "Price", "ATR"],
-]
-
-
 def main(
     sheet_url: str,
-    filter_sets: List[List[str]],
-    symbols_list: List[str] = None
-) -> Dict[str, Any]:
+    filter_sets_file: str,
+    symbols_file: str,
+    period: str,
+    interval: str,
+) -> None:
     """
     Workflow:
         1. Connect to Google Sheets
@@ -70,12 +62,13 @@ def main(
         6. Filter stock data for previous day entries.
         7. Generate new trades for all trade parameter sets and update corresponding tabs.
         8. Evaluate trades in remaining tabs.
-        9. Log results and return a summary dictionary.
 
     Args:
         sheet_url (str): Google Sheets URL.
-        filters (List[str]): List of filter sets to apply for potential entries.
-        symbols_list (List[str], optional): List of symbols. Defaults to a test list.
+        filter_sets_file (str): Path to JSON file containing filter sets.
+        symbols_file (str): File with list of symbols.
+        period (str): Data period for download (e.g. '100d', '1y').
+        interval (str): Data interval (e.g. '1d', '1h',
     """
     logger.info("Starting daily trading pipeline.\n")
 
@@ -85,19 +78,19 @@ def main(
         logger.info("Successfully connected to Google Sheets.\n")
     except Exception as e:
         logger.error(f"Could not connect to Google Sheets due to error: {e}")
+        raise
 
     # 1. Download and label all data
     try:
-        symbol_list_txt_path = "data/all-symbols-june-2025.txt"
-        logger.info("Fetching symbol list from {symbol_list_txt_path}...")
-        symbols_list = read_list_from_file(symbol_list_txt_path)
+        logger.info(f"Fetching symbol list from {symbols_file}...")
+        symbols_list = read_list_from_file(symbols_file)
 
         logger.info(f"Downloading data for {len(symbols_list)} symbols...")
 
         stock_data = download_data(
             symbols=symbols_list,
-            period="500d",
-            interval="1d",
+            period=period,
+            interval=interval,
             batch_size=100,
         )
 
@@ -113,6 +106,11 @@ def main(
 
     # 2. Find potential entries based on different sets of filters
     try:
+        logger.info(f"Fetching filter sets from {filter_sets_file}...")
+
+        with open(filter_sets_file, "r", encoding="utf-8") as f:
+            filter_sets = json.load(f)
+
         logger.info(f"Finding potential entries for {len(filter_sets)} filter sets...")
         logger.debug(f"Filter sets: {filter_sets}")
         
@@ -122,7 +120,7 @@ def main(
             if (entries := find_potential_entries(stock_data_with_indicators, filter_set=fset)[0])
         ]
 
-        logger.info(f"Found {len(potential_entries_with_filters)} potential entries sets.\n")
+        logger.info(f"Found {len(potential_entries_with_filters)} potential entry sets.\n")
     except Exception as e:
         logger.error(f"Could not find potential entries due to error: {e}")
 
@@ -130,7 +128,7 @@ def main(
     try:
         logger.info(f"Writing potential entries and filters to Google Sheets...")
 
-        latest_day = next(iter(stock_data_with_indicators.values()))['Datetime'].values[-1] # Get latest day
+        latest_day = next(iter(stock_data_with_indicators.values()))['Datetime'].iloc[-1] # Get latest day
         
         gs_manager.write_potential_entries(
             latest_day=latest_day,
@@ -158,13 +156,7 @@ def main(
 
         logger.info(f"Found {len(trade_tabs)} trade tabs.\n")
     except Exception as e:
-        logger.error(f"Could not read trade tabs due to error: {e}")
-
-    # TODO: Select data for generation in trade generation function
-    # Filter stock data for these entries
-    stock_data_for_entries = {
-        sym: df for sym, df in stock_data_with_indicators.items() if sym in prev_day_entries
-    }
+        logger.error(f"Could not read trade tabs due to error: {e}")    
 
     # 5. Generate and write trades for all trade parameter sets and evaluate trades in these tabs
     try:
@@ -173,7 +165,8 @@ def main(
 
         for trade_params in generate_trade_param_sets():
             new_trades, new_trades_tab_name = generate_trades(
-                stock_data_for_entries,
+                stock_data_with_indicators,
+                prev_day_entries,
                 **trade_params
             )
 
@@ -218,17 +211,16 @@ def main(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run daily stock trading pipeline.")
     parser.add_argument(
-        "--filter_sets",
-        nargs="+",
-        default=DEFAULT_FILTER_SETS,
-        required=False,
-        help="List of filters to apply for potential entries"
+        "--filter_sets_file",
+        type=str,
+        default='filter_sets/default_sets.json',
+        help="Path to JSON file containing filter sets (e.g., 'configs/filter_sets.json')"
     )
     parser.add_argument(
-        "--symbols",
-        nargs="+",
-        default=None,
-        help="List of symbols to process (default test symbols)"
+        "--symbols_file",
+        type=str,
+        default="data/all-symbols-june-2025.txt",
+        help="Path to file containing list of symbols"
     )
     parser.add_argument(
         "--sheet_url",
@@ -236,11 +228,15 @@ if __name__ == "__main__":
         default="https://docs.google.com/spreadsheets/d/16HZfFIu37ZG7kRgLDI9SqS5xPhb3pn3iY2ubOymVseU/edit#gid=1171524967",
         help="Google Sheets URL"
     )
+    parser.add_argument("--period", type=str, default="500d", help="Data period for download (e.g. '100d', '1y')")
+    parser.add_argument("--interval", type=str, default="1d", help="Data interval (e.g. '1d', '1h', '5m')")
 
     args = parser.parse_args()
 
     result = main(
         sheet_url=args.sheet_url,
-        filter_sets=args.filter_sets,
-        symbols_list=args.symbols,
+        filter_sets_file=args.filter_sets_file,
+        symbols_file=args.symbols_file,
+        period=args.period,
+        interval=args.interval
     )

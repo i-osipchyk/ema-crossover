@@ -32,7 +32,8 @@ def pnl(entry_price: float, exit_price: float, share_n: float) -> float:
         return (exit_price - entry_price) * share_n
 
 def generate_trades(
-    stock_data_for_entries, 
+    stock_data_with_indicators: dict,
+    prev_day_entries: List[str],
     stop_rule: str = 'crossover', 
     sl_offset_pc: float = 0.0, 
     max_tp: int = 5,
@@ -60,6 +61,11 @@ def generate_trades(
     Returns:
         pd.DataFrame: Trades with entry, stop loss, BE, risk, TPs and TP sizes.
     """
+    # Filter stock data for these entries
+    stock_data_for_entries = {
+        sym: df for sym, df in stock_data_with_indicators.items() if sym in prev_day_entries
+    }
+
     today_trades = []
 
     for sym, df in stock_data_for_entries.items():
